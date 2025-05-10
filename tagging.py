@@ -8,6 +8,7 @@ import zipfile
 import shutil # For shutil.move
 import tempfile # For temporary zip creation
 import sys
+from inspect_files import handle_check as perform_check_on_file # Alias to avoid name clash
 
 # Import from our other modules
 from config import CV_BASE_URL, CV_ISSUE_PREFIX # For fetching data if tagging by ID
@@ -17,6 +18,81 @@ from utils import (
 )
 # We need the API request function if tagging by issue ID
 from fetch_api import make_comicvine_api_request 
+
+def _perform_actual_tagging(args, cbz_file_path): # Internal helper for actual tagging
+    """Performs the tagging operation once metadata source is determined."""
+    print_header_line(f"Tagging: {os.path.basename(cbz_file_path)}", color=Style.GREEN)
+    print_info(f"  File: {cbz_file_path}")
+    comic_info_data_to_write = {}
+
+    if args.issue_id:
+        print_info(f"Fetching metadata from ComicVine for issue ID: {args.issue_id}...")
+        issue_params = {} # No field_list to get all fields
+        cv_api_response = make_comicvine_api_request(f"{CV_BASE_URL}issue/{CV_ISSUE_PREFIX}{args.issue_id}/", issue_params)
+        if cv_api_response and cv_api_response.get('results'):
+            cv_issue_details = cv_api_response.get('results')
+            print_info("  Successfully fetched data from ComicVine.")
+            comic_info_data_to_write = map_cv_to_comicinfo_dict(cv_issue_details)
+            if not comic_info_data_to_write:
+                print_error("  Could not map ComicVine data to ComicInfo format. No data to tag."); return
+        else:
+            print_error(f"  Failed to fetch data for issue ID {args.issue_id} from ComicVine."); return
+    elif args.from_file:
+        metadata_file_path = os.path.abspath(os.path.expanduser(args.from_file))
+        # ... (logic for loading from --from-file as before) ...
+        print_info(f"Loading metadata from file: {metadata_file_path}...")
+        # ... (error handling for file not found, JSON decode error etc.) ...
+        # ... comic_info_data_to_write = loaded_data ...
+        if not os.path.isfile(metadata_file_path):
+            print_error(f"  Metadata file not found: {metadata_file_path}"); return
+        try:
+            with open(metadata_file_path, 'r', encoding='utf-8') as f:
+                loaded_data = json.load(f) 
+                if not isinstance(loaded_data, dict):
+                    print_error(f"  Metadata file {args.from_file} does not contain a valid JSON object."); return
+                comic_info_data_to_write = {k: str(v) if v is not None else None for k, v in loaded_data.items()}
+                print_info(f"  Successfully loaded metadata from {args.from_file}.")
+        except json.JSONDecodeError: print_error(f"  Invalid JSON in metadata file: {args.from_file}"); return
+        except Exception as e: print_error(f"  Could not process metadata file {args.from_file}: {e}"); return
+
+    if not comic_info_data_to_write:
+        print_info("No metadata available to tag with. Exiting."); return
+    write_comic_info_to_cbz(cbz_file_path, comic_info_data_to_write, overwrite_all=args.overwrite_all)
+
+
+# This is the main handler function for the 'tag' subparser in comic_tagger_cli.py
+def handle_tagging_dispatch(args):
+    """
+    Dispatches to tag, erase, or check based on flags for a single CBZ file.
+    """
+    cbz_file_path_abs = os.path.abspath(os.path.expanduser(args.cbz_file_path))
+    if not os.path.isfile(cbz_file_path_abs) or not cbz_file_path_abs.lower().endswith(".cbz"):
+        print_error(f"Invalid CBZ file path: {cbz_file_path_abs}. Must be an existing .cbz file.")
+        return
+
+    if args.check:
+        # Call the check functionality (which now lives in inspect_files.py)
+        # We need to pass 'args' in a way that handle_check expects, which is args.paths list.
+        # So, we create a temporary Namespace-like object or just pass the path.
+        class CheckArgs:
+            def __init__(self, path):
+                self.paths = [path]
+        check_args = CheckArgs(cbz_file_path_abs)
+        perform_check_on_file(check_args) # from inspect_files import handle_check as perform_check_on_file
+
+    elif args.erase:
+        print_header_line(f"Erasing Tags: {os.path.basename(cbz_file_path_abs)}", color=Style.RED)
+        print_info(f"  File: {cbz_file_path_abs}")
+        if args.issue_id or args.from_file: # These are now part of the same 'args' namespace
+            print_info("  --issue-id and --from-file flags are ignored when --erase is used.")
+        erase_comic_info_from_cbz(cbz_file_path_abs)
+
+    elif args.issue_id or args.from_file: # This means actual tagging
+        _perform_actual_tagging(args, cbz_file_path_abs)
+        
+    else:
+        # This case should ideally be prevented by argparse (mutually exclusive group being required)
+        print_error("No tagging action specified. Use --issue-id, --from-file, --erase, or --check.")
 
 # --- XML and Mapping Helper Functions ---
 

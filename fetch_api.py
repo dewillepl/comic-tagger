@@ -273,74 +273,116 @@ def display_issue_details_verbose(issue_data):
 
 
 # --- Main Handler for 'fetch' command ---
+# In fetch_api.py
+
+# In fetch_api.py
+
 def handle_fetch_comicvine(args):
     params = {} 
     url = None
     mode = None 
     needs_post_filtering = False
 
-    if args.get_volume:
+    if args.get_volume: # -v was used
         mode = 'volume'
         url = f"{CV_BASE_URL}volume/{CV_VOLUME_PREFIX}{args.get_volume}/"
         params['field_list'] = 'id,name,issues,publisher(id|name|site_detail_url),start_year,count_of_issues,description,image,date_last_updated,api_detail_url,site_detail_url'
         print_info(f"Fetching details for volume ID: {args.get_volume} from ComicVine...")
     
-    elif args.get_issue:
+    elif args.get_issue: # -i was used
         mode = 'issue'
         url = f"{CV_BASE_URL}issue/{CV_ISSUE_PREFIX}{args.get_issue}/"
         # No 'field_list' in params means API should return all fields by default
         print_info(f"Fetching ALL available details for issue ID: {args.get_issue} from ComicVine...")
 
-    elif args.search_volumes:
+    # If neither --get-volume nor --get-issue is specified, it's a criteria-based volume search.
+    # We also need to ensure at least one search criterion is provided for this mode.
+    elif (args.cv_series_name or args.cv_title_desc or args.cv_author_name or 
+          args.cv_start_year is not None or args.cv_publisher_name or args.cv_issues_count is not None):
         mode = 'searching'
-        url = f"{CV_BASE_URL}volumes/"
+        url = f"{CV_BASE_URL}volumes/" # <<< THIS WAS THE MISSING URL ASSIGNMENT
         api_filters = []
+        
+        # Build API filters from provided criteria
+        # Prioritize series name for the API 'name' filter if both series and title are somehow given
         api_name_filter_value = args.cv_series_name if args.cv_series_name else args.cv_title_desc
         if api_name_filter_value: api_filters.append(f"name:{api_name_filter_value}")
+        
         if args.cv_author_name: api_filters.append(f"person:{args.cv_author_name}"); print_info("Using --author uses the 'person' ComicVine API filter.")
         if args.cv_publisher_name: api_filters.append(f"publisher:{args.cv_publisher_name}")
-        if api_filters: params['filter'] = ','.join(api_filters)
-        else: print_info("Warning: Searching volumes without any API filters. This might be slow or return many results.")
+        # Note: Year and num-issues are primarily handled by post-filtering, 
+        # but you could attempt to add them to API filters if CV supports them well.
+        # For now, keeping them as post-filters for reliability.
+
+        if api_filters: 
+            params['filter'] = ','.join(api_filters)
+        else:
+            # This case means 'search' was called with no specific ID and no criteria.
+            # This should ideally be caught by argparse if we make at least one criterion required for this mode,
+            # or we can print a message here. For now, the API call would be very broad.
+            print_info("Performing a broad volume search (no specific criteria given to API). This might be slow or return many results.")
+
         params['field_list'] = 'id,name,publisher,start_year,count_of_issues,description,image,date_last_updated,api_detail_url,site_detail_url'
         params['limit'] = 100; params['sort'] = 'name:asc'
         print_info(f"Searching ComicVine volumes with API filters: {params.get('filter', 'None')}...")
-        needs_post_filtering = (args.cv_series_name or args.cv_title_desc or args.cv_publisher_name or args.cv_start_year or args.cv_issues_count is not None)
+        
+        needs_post_filtering = (args.cv_series_name or args.cv_title_desc or args.cv_publisher_name or 
+                                args.cv_start_year is not None or args.cv_issues_count is not None)
         if needs_post_filtering:
-            active_post_filters = [f for f, c in [("Series (contains)", args.cv_series_name), ("Title/Desc (contains)", args.cv_title_desc), ("Publisher (contains)", args.cv_publisher_name), ("Year (exact)", args.cv_start_year), ("Issues (exact)", args.cv_issues_count is not None)] if c]
-            if active_post_filters: print_info(f"Applying local post-filtering for: {', '.join(active_post_filters)}...")
-    
-    if not url: 
-        # This should ideally be caught by argparse if a mode is required.
-        print_error("Internal error: Could not determine API endpoint for fetch operation.")
-        return # Return instead of sys.exit to let CLI handle exit
+            active_post_filters = [f for f, c in [
+                ("Series (contains)", args.cv_series_name), 
+                ("Title/Desc (contains)", args.cv_title_desc), 
+                ("Publisher (contains)", args.cv_publisher_name), 
+                ("Year (exact)", args.cv_start_year is not None), # Check for not None
+                ("Issues (exact)", args.cv_issues_count is not None) # Check for not None
+            ] if c] # Only include if the corresponding arg was actually provided
+            if active_post_filters: 
+                print_info(f"Applying local post-filtering for: {', '.join(active_post_filters)}...")
+    else:
+        # This 'else' means 'search' was called with no --get-volume, no --get-issue, AND no search criteria.
+        print_error("For a volume search, please provide at least one search criterion "
+                    "(e.g., --series, --title, --year, etc.).")
+        # It's better to make the CLI exit here or print its own help.
+        # For now, returning will prevent an API call with no criteria.
+        return # Effectively stops further processing in this handler
 
+    # This check should now be robust.
+    if not url: 
+        print_error("Internal error: Could not determine API endpoint for fetch operation.")
+        # This implies a logic flaw above if reached.
+        return 
+
+    # Make the API request
     data = make_comicvine_api_request(url, params)
 
+    # Process and display the data (this part remains the same)
     if data:
         if mode == 'searching':
             search_results_list = data.get('results', []) 
             if needs_post_filtering:
+                # ... (the comprehensive post-filtering logic for search results)
                 filtered_results_for_search = []
                 series_search_term = args.cv_series_name.lower() if args.cv_series_name else None
                 title_desc_search_term = args.cv_title_desc.lower() if args.cv_title_desc else None
                 publisher_search_term = args.cv_publisher_name.lower() if args.cv_publisher_name else None
-                for volume in search_results_list: 
+                for volume_item in search_results_list: # Renamed 'volume' to 'volume_item' to avoid conflict
                     match = True
-                    if series_search_term and series_search_term not in (volume.get('name') or "").lower(): match = False
+                    if series_search_term and series_search_term not in (volume_item.get('name') or "").lower(): match = False
                     if match and title_desc_search_term:
-                        vol_name_lower = (volume.get('name') or "").lower(); vol_desc_lower = (volume.get('description') or "").lower()
+                        vol_name_lower = (volume_item.get('name') or "").lower(); vol_desc_lower = (volume_item.get('description') or "").lower()
                         vol_desc_text = strip_html(vol_desc_lower) 
                         if not (title_desc_search_term in vol_name_lower or title_desc_search_term in vol_desc_text): match = False
                     if match and publisher_search_term:
-                        pub_data = volume.get('publisher')
+                        pub_data = volume_item.get('publisher')
                         if not (pub_data and isinstance(pub_data, dict) and publisher_search_term in (pub_data.get('name') or "").lower()): match = False
-                    if match and args.cv_start_year:
-                        vol_year_str = volume.get('start_year')
+                    if match and args.cv_start_year is not None: # Check explicitly for not None
+                        vol_year_str = volume_item.get('start_year')
                         try:
                             if vol_year_str is None or str(vol_year_str).strip() == "" or int(vol_year_str) != args.cv_start_year: match = False
                         except (ValueError, TypeError): match = False
-                    if match and args.cv_issues_count is not None and (volume.get('count_of_issues') is None or volume.get('count_of_issues') != args.cv_issues_count): match = False
-                    if match: filtered_results_for_search.append(volume)
+                    if match and args.cv_issues_count is not None: # Check explicitly for not None
+                         if (volume_item.get('count_of_issues') is None or volume_item.get('count_of_issues') != args.cv_issues_count): match = False
+                    if match: filtered_results_for_search.append(volume_item)
                 display_volume_search_results(filtered_results_for_search) 
             else:
                 display_volume_search_results(search_results_list) 
@@ -353,4 +395,3 @@ def handle_fetch_comicvine(args):
                 display_issue_details_summary(data.get('results', {}))
     else: 
         print_error("Failed to retrieve any data from ComicVine API for the request.")
-        # No explicit sys.exit here; let the CLI main loop handle final exit status if needed
