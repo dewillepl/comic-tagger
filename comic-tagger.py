@@ -78,21 +78,28 @@ def main():
 
     # --- Tag Subcommand ---
     tag_parser = subparsers.add_parser('tag', 
-                                       help='Tag a comic file, erase its tags, or check existing tags.')
+                                       help='Tag a comic file, erase its tags, check existing tags, or rename based on tags.') # Updated help
+    
     tag_action_exclusive_group = tag_parser.add_mutually_exclusive_group(required=True)
-    tag_action_exclusive_group.add_argument('--issue-id', '-id',
-                                            type=int, metavar='CV_ISSUE_ID',
-                                            help="Tag using ComicVine Issue ID.")
+    tag_action_exclusive_group.add_argument('--issue-id', '-id', type=int, metavar='CV_ISSUE_ID',
+                                            help="Tag (and optionally rename) using ComicVine Issue ID.")
     tag_action_exclusive_group.add_argument('--from-file', '-f', metavar='METADATA_JSON_FILE',
-                                            help="Tag using metadata from a local JSON file.")
+                                            help="Tag (and optionally rename) using metadata from a local JSON file.")
     tag_action_exclusive_group.add_argument('--erase', '-e', action='store_true',
                                             help="Erase ComicInfo.xml from the CBZ file.")
     tag_action_exclusive_group.add_argument('--check', '-c', action='store_true',
                                             help="Check and display existing ComicInfo.xml from the CBZ file.")
+
     tag_parser.add_argument('cbz_file_path', metavar='COMIC_FILE_PATH',
                             help="Path to the .cbz comic file to operate on.")
+    
     tag_parser.add_argument('--overwrite-all', '-o', action='store_true',
                             help="Completely replace existing ComicInfo.xml when tagging (default is to merge/update).")
+    
+    tag_parser.add_argument('--rename', '-r', action='store_true', # NEW RENAME FLAG
+                            help="After tagging, rename the CBZ file based on a standard format using the new metadata. "
+                                 "(e.g., 'Series VVol#Num (Year) - Title.cbz')")
+    
     tag_parser.set_defaults(func=handle_tagging_dispatch)
 
     # --- Convert Subcommand ---

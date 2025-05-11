@@ -2,6 +2,7 @@ import shutil
 import re
 import os # For os.path.basename, os.path.dirname if needed by utils
 import sys
+import unicodedata
 
 # --- ANSI Escape Codes for Styling ---
 class Style:
@@ -19,6 +20,53 @@ class Style:
     BRIGHT_BLACK = "\033[90m" # Dim text
 
 # --- General Utility Functions ---
+
+
+def sanitize_filename(name_str, replace_char='_'):
+    """
+    Sanitizes a string to be a safe filename.
+    Removes/replaces invalid characters, normalizes unicode, and handles length.
+    """
+    if not name_str:
+        return "Untitled"
+
+    # Normalize unicode characters (e.g., convert accented characters to their base form if possible)
+    # NFKD: Compatibility Decomposition, followed by Canonical Composition
+    # This helps with characters like é -> e
+    name_str = unicodedata.normalize('NFKD', str(name_str)).encode('ascii', 'ignore').decode('ascii')
+
+    # Replace common problematic characters with a space first
+    name_str = name_str.replace(':', ' - ') # Colons often separate title/subtitle
+    name_str = name_str.replace('/', replace_char)
+    name_str = name_str.replace('\\', replace_char)
+    name_str = name_str.replace('?', '')
+    name_str = name_str.replace('*', '')
+    name_str = name_str.replace('"', "'") # Replace double quotes with single
+    name_str = name_str.replace('<', '')
+    name_str = name_str.replace('>', '')
+    name_str = name_str.replace('|', '')
+    
+    # Remove any leading/trailing whitespace or dots
+    name_str = name_str.strip(' .')
+
+    # Replace multiple spaces with a single space
+    name_str = re.sub(r'\s+', ' ', name_str).strip()
+    
+    # If we want to replace spaces with the replace_char (e.g., underscore)
+    # name_str = name_str.replace(' ', replace_char)
+    # For now, let's keep spaces, as they are generally fine in modern OS filenames.
+
+    # Ensure filename isn't too long (common limit is 255 bytes/chars)
+    # This is a simple truncation; more sophisticated might try to preserve parts.
+    max_len = 200 # A conservative max length for the base filename part
+    if len(name_str) > max_len:
+        name_str = name_str[:max_len].strip(' .')
+
+    # Final check for empty string after sanitization
+    if not name_str:
+        return "Untitled"
+        
+    return name_str
 
 def print_error(message, to_stderr=True):
     """Prints a styled error message."""
