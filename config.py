@@ -3,7 +3,7 @@
 import os
 
 # --- ComicVine API Configuration ---
-CV_API_KEY = "9ebffd40260fe62f4834da15df4f5a652f6309e6" # Your actual API key
+CV_API_KEY = "" # Your actual API key
 CV_BASE_URL = "https://comicvine.gamespot.com/api/"
 
 # User Agent: Can be overridden by CV_FETCHER_USER_AGENT environment variable
