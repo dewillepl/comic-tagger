@@ -1,6 +1,10 @@
 
 # comic-tagger v0.6
 
+[![Version](https://img.shields.io/badge/version-v0.6-blue.svg)](#)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](#)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](#)
+
 **A command-line tool for fetching comic metadata from ComicVine, tagging CBZ files with `ComicInfo.xml`, inspecting tags, managing metadata, and converting comic formats.**
 
 `comic-tagger` helps you organize your digital comic collection by leveraging the ComicVine database and providing utilities to embed and manage metadata within `.cbz` files.
