@@ -59,49 +59,52 @@ def main():
     search_parser.add_argument('--verbose', '-V', action='store_true', 
                                help="Show verbose output, especially for --get-issue.")
     search_parser.add_argument('--include-issues', '-ii', action='store_true',
-                               help="For volume searches, also fetch and display the issue list for each found volume (slower, more API calls).")
+                               help="For volume searches, also fetch issue list for each volume (slower).")
     
-    # Consolidated title/name search
-    search_parser.add_argument('--title', '-t', dest='cv_name_filter', # CHANGED dest
-                               help="Search criteria: volume name/title (API 'name' filter, local 'contains' match).")
-    # REMOVED --series / -s
+    # Translation flags for --get-issue mode
+    search_parser.add_argument('--translate-title', '-tT', metavar='LANG_CODE', nargs='?', const='pl',
+                               help="Translate issue title to LANG_CODE (default: 'pl'). Only with --get-issue.")
+    search_parser.add_argument('--translate-description', '-tD', metavar='LANG_CODE', nargs='?', const='pl',
+                               help="Translate issue description to LANG_CODE (default: 'pl'). Only with --get-issue.")
     
+    search_parser.add_argument('--title', '-t', dest='cv_name_filter',
+                               help="Search criteria: volume name/title.")
     search_parser.add_argument('--author', '-a', dest='cv_author_name', 
-                               help="Search criteria: author/creator name (API 'person' filter).")
+                               help="Search criteria: author/creator name.")
     search_parser.add_argument('--year', '-y', dest='cv_start_year', type=int, 
-                               help="Search criteria: EXACT start year (local match).")
+                               help="Search criteria: EXACT start year.")
     search_parser.add_argument('--publisher', '-p', dest='cv_publisher_name', 
-                               help="Search criteria: publisher name (API filter + local 'contains' match).")
+                               help="Search criteria: publisher name.")
     search_parser.add_argument('--num-issues', '-n', dest='cv_issues_count', type=int, 
-                               help="Search criteria: EXACT number of issues (local match).")
+                               help="Search criteria: EXACT number of issues.")
     search_parser.set_defaults(func=handle_fetch_comicvine)
 
     # --- Tag Subcommand ---
     tag_parser = subparsers.add_parser('tag', 
-                                       help='Tag a comic file, erase its tags, check existing tags, or rename based on tags.') # Updated help
+                                       help='Tag a comic file, erase its tags, check existing tags, or rename based on tags.')
     
     tag_action_exclusive_group = tag_parser.add_mutually_exclusive_group(required=True)
-    tag_action_exclusive_group.add_argument('--issue-id', '-id', type=int, metavar='CV_ISSUE_ID',
-                                            help="Tag (and optionally rename) using ComicVine Issue ID.")
-    tag_action_exclusive_group.add_argument('--from-file', '-f', metavar='METADATA_JSON_FILE',
-                                            help="Tag (and optionally rename) using metadata from a local JSON file.")
-    tag_action_exclusive_group.add_argument('--erase', '-e', action='store_true',
-                                            help="Erase ComicInfo.xml from the CBZ file.")
-    tag_action_exclusive_group.add_argument('--check', '-c', action='store_true',
-                                            help="Check and display existing ComicInfo.xml from the CBZ file.")
+    # ... (issue-id, from-file, erase, check arguments as before) ...
+    tag_action_exclusive_group.add_argument('--issue-id', '-id', type=int, metavar='CV_ISSUE_ID', help="Tag (and optionally rename/translate) using ComicVine Issue ID.")
+    tag_action_exclusive_group.add_argument('--from-file', '-f', metavar='METADATA_JSON_FILE', help="Tag (and optionally rename/translate) using metadata from a local JSON file.")
+    tag_action_exclusive_group.add_argument('--erase', '-e', action='store_true', help="Erase ComicInfo.xml from the CBZ file.")
+    tag_action_exclusive_group.add_argument('--check', '-c', action='store_true', help="Check and display existing ComicInfo.xml from the CBZ file.")
+
 
     tag_parser.add_argument('cbz_file_path', metavar='COMIC_FILE_PATH',
                             help="Path to the .cbz comic file to operate on.")
     
     tag_parser.add_argument('--overwrite-all', '-o', action='store_true',
                             help="Completely replace existing ComicInfo.xml when tagging (default is to merge/update).")
+    tag_parser.add_argument('--rename', '-r', action='store_true',
+                            help="After tagging, rename the CBZ file based on a standard format using the new metadata.")
     
-    tag_parser.add_argument('--rename', '-r', action='store_true', # NEW RENAME FLAG
-                            help="After tagging, rename the CBZ file based on a standard format using the new metadata. "
-                                 "(e.g., 'Series VVol#Num (Year) - Title.cbz')")
+    tag_parser.add_argument('--translate', metavar='LANG_CODE', nargs='?', const='pl', # NEW TRANSLATE FLAG
+                            help="Translate text fields (e.g., Title, Summary) to the specified language code "
+                                 "(e.g., 'pl' for Polish). If no language code is given, defaults to 'pl'. "
+                                 "Requires Mistral API key in translator.py. Ignored if --check or --erase.")
     
     tag_parser.set_defaults(func=handle_tagging_dispatch)
-
     # --- Convert Subcommand ---
     convert_parser = subparsers.add_parser('convert', 
                                            help='Convert comic files (CBR, CB7, CBT, PDF) to CBZ', 

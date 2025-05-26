@@ -21,6 +21,21 @@ from utils import (
 )
 import natsort # For sorting issues within a volume
 
+# Conditionally import translator
+try:
+    from translator import translate_text, logger as translator_logger # Import logger too
+    TRANSLATOR_AVAILABLE = True
+except ImportError:
+    print_info("Optional 'translator.py' module not found or import error. Translation feature will be disabled.")
+    TRANSLATOR_AVAILABLE = False
+    translator_logger = None 
+    def translate_text(text, target_language_code=None, source_language_code=None):
+        if target_language_code and translator_logger: # Check if logger was meant to exist
+             translator_logger.warning("Translation called but translator module is not available.")
+        elif target_language_code: # Basic print if logger is None
+             print("(Info: Translation called but translator module is not available.)")
+        return text
+
 # --- API Request Function ---
 def make_comicvine_api_request(url, params):
     """
@@ -295,6 +310,57 @@ def handle_fetch_comicvine(args):
     cv_issues_count_val = getattr(args, 'cv_issues_count', None)
     include_issues_flag = getattr(args, 'include_issues', False)
     verbose_flag = getattr(args, 'verbose', False)
+    
+
+    if args.get_issue:
+        mode = 'issue_detail'
+        url = f"{CV_BASE_URL}issue/{CV_ISSUE_PREFIX}{args.get_issue}/"
+        print_info(f"Fetching ALL available details for issue ID: {args.get_issue} from ComicVine...")
+        api_data_response = make_comicvine_api_request(url, params) # No field_list for all fields
+
+        # --- Apply translation if requested for issue details ---
+        if api_data_response and api_data_response.get('results'):
+            # Make a copy to modify, so we don't alter the original raw response if needed elsewhere
+            issue_details_dict_to_display = dict(api_data_response['results']) 
+            
+            # DEBUG: Print the state of translation flags
+            print_info(f"  DEBUG: translate_title_lang = {translate_title_lang}, translate_desc_lang = {translate_desc_lang}, TRANSLATOR_AVAILABLE = {TRANSLATOR_AVAILABLE}")
+
+            if translate_title_lang and TRANSLATOR_AVAILABLE:
+                original_title = issue_details_dict_to_display.get('name')
+                if original_title:
+                    print_info(f"  Attempting to translate title ('{original_title[:30]}...') to '{translate_title_lang}'...")
+                    translated_title = translate_text(original_title, target_language_code=translate_title_lang)
+                    print_info(f"  DEBUG: Original Title: '{original_title[:30]}...', Translated: '{translated_title[:30]}...'")
+                    issue_details_dict_to_display['name'] = translated_title
+                else:
+                    print_info("  DEBUG: No original title found to translate.")
+            
+            if translate_desc_lang and TRANSLATOR_AVAILABLE:
+                original_description = issue_details_dict_to_display.get('description')
+                if original_description:
+                    cleaned_description = strip_html(original_description)
+                    print_info(f"  Attempting to translate description ('{cleaned_description[:50]}...') to '{translate_desc_lang}'...")
+                    translated_description = translate_text(cleaned_description, target_language_code=translate_desc_lang)
+                    print_info(f"  DEBUG: Original Description (cleaned): '{cleaned_description[:50]}...', Translated: '{translated_description[:50]}...'")
+                    issue_details_dict_to_display['description'] = translated_description 
+                else:
+                    print_info("  DEBUG: No original description found to translate.")
+            
+            # If only deck is present but no description, and description translation was requested, translate deck.
+            if translate_desc_lang and TRANSLATOR_AVAILABLE and \
+               not issue_details_dict_to_display.get('description') and issue_details_dict_to_display.get('deck'): # Check current state of 'description'
+                original_deck = issue_details_dict_to_display.get('deck')
+                if original_deck:
+                    cleaned_deck = strip_html(original_deck)
+                    print_info(f"  No main description, attempting to translate deck ('{cleaned_deck[:50]}...') to '{translate_desc_lang}' instead...")
+                    translated_deck_as_desc = translate_text(cleaned_deck, target_language_code=translate_desc_lang)
+                    print_info(f"  DEBUG: Original Deck (cleaned): '{cleaned_deck[:50]}...', Translated for Description: '{translated_deck_as_desc[:50]}...'")
+                    issue_details_dict_to_display['description'] = translated_deck_as_desc # Put translated deck into description field
+                    # issue_details_dict_to_display['deck'] = None # Optionally clear original English deck
+            
+            # Pass the potentially modified dictionary to display functions
+            api_data_response['results'] = issue_details_dict_to_display # Update the dict within api_data_response
 
     # --- Determine Mode and Fetch Initial Data if applicable ---
     if args.get_volume:
