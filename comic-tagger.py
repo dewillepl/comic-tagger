@@ -100,16 +100,17 @@ def select_file_from_list(files, prompt="Select a file to process"):
 
 # --- Menu Functions ---
 
-def show_search_menu():
-    """Search menu logic."""
-    # This function remains unchanged as it doesn't modify files.
-    # ... (code from previous version)
+def show_search_and_tag_menu(state):
+    """
+    Handles searching ComicVine and tagging files directly from search results.
+    """
     while True:
-        print_header_line("Search Menu", color=Style.GREEN)
+        print_header_line("Search & Tag from ComicVine", color=Style.GREEN)
         print(" 1. Search for Volume (by Title, Year, etc.)")
-        print(" 2. Get Issue Details (by ID)")
-        print(" 3. Get Volume Details (by ID)")
-        print(" 4. Back to Main Menu")
+        print(" 2. Get Volume Details (by ID)")
+        print(" 3. Get Issue Details (by ID)")
+        print(" 4. Tag from ComicVine Issue ID")
+        print(" 5. Back to Main Menu")
         choice = get_user_input("Choose an option: ")
 
         if choice == '1':
@@ -117,130 +118,103 @@ def show_search_menu():
             author = get_user_input("Enter Author (optional): ")
             year = get_user_input("Enter Start Year (optional): ")
             publisher = get_user_input("Enter Publisher (optional): ")
-            
-            args = SimpleNamespace(
-                cv_name_filter=title or None,
-                cv_author_name=author or None,
-                cv_start_year=int(year) if year.isdigit() else None,
-                cv_publisher_name=publisher or None,
-                get_issue=None, get_volume=None, include_issues=False, verbose=False,
-                translate_title=None, translate_description=None
-            )
+            args = SimpleNamespace(cv_name_filter=title or None, cv_author_name=author or None, cv_start_year=int(year) if year.isdigit() else None, cv_publisher_name=publisher or None, get_issue=None, get_volume=None)
             handle_fetch_comicvine(args)
 
         elif choice == '2':
-            issue_id = get_user_input("Enter ComicVine Issue ID: ", required=True)
-            if not issue_id.isdigit(): continue
-
-            translate_title = 'pl' if get_user_input("Translate Title? (y/n): ").lower() == 'y' else None
-            translate_desc = 'pl' if get_user_input("Translate Description? (y/n): ").lower() == 'y' else None
-            verbose = get_user_input("Show verbose details? (y/n): ").lower() == 'y'
-
-            args = SimpleNamespace(
-                get_issue=int(issue_id),
-                translate_title=translate_title,
-                translate_description=translate_desc,
-                verbose=verbose,
-                get_volume=None, cv_name_filter=None
-            )
+            volume_id = get_user_input("Enter ComicVine Volume ID: ", required=True)
+            if not volume_id.isdigit(): continue
+            args = SimpleNamespace(get_volume=int(volume_id), get_issue=None)
             handle_fetch_comicvine(args)
 
         elif choice == '3':
-            volume_id = get_user_input("Enter ComicVine Volume ID: ", required=True)
-            if not volume_id.isdigit(): continue
-
-            args = SimpleNamespace(
-                get_volume=int(volume_id),
-                get_issue=None, cv_name_filter=None
-            )
+            issue_id = get_user_input("Enter ComicVine Issue ID: ", required=True)
+            if not issue_id.isdigit(): continue
+            translate_title = 'pl' if get_user_input("Translate Title? (y/n): ").lower() == 'y' else None
+            translate_desc = 'pl' if get_user_input("Translate Description? (y/n): ").lower() == 'y' else None
+            verbose = get_user_input("Show verbose details? (y/n): ").lower() == 'y'
+            args = SimpleNamespace(get_issue=int(issue_id), translate_title=translate_title, translate_description=translate_desc, verbose=verbose, get_volume=None)
             handle_fetch_comicvine(args)
 
         elif choice == '4':
+            cbz_files = [f for f in state.loaded_files if f.lower().endswith('.cbz')]
+            if not cbz_files:
+                print_error("No .cbz files loaded to tag. Convert files first.")
+                input("Press Enter to continue...")
+                continue
+            
+            target_file = select_file_from_list(cbz_files, "Select a .cbz file to tag")
+            if not target_file:
+                continue
+
+            issue_id = get_user_input("Enter ComicVine Issue ID to tag with: ", required=True)
+            if not issue_id.isdigit(): continue
+
+            rename = get_user_input("Rename file after tagging? (y/n): ").lower() == 'y'
+            translate = 'pl' if get_user_input("Translate description? (y/n): ").lower() == 'y' else None
+            overwrite = get_user_input("Overwrite all existing tags? (y/n): ").lower() == 'y'
+
+            args = SimpleNamespace(issue_id=int(issue_id), cbz_file_path=target_file, rename=rename, translate=translate, overwrite_all=overwrite, from_file=None, erase=False, check=False)
+            success, new_path = handle_tagging_dispatch(args)
+            if success and new_path != target_file:
+                state.update_filepath(target_file, new_path)
+            
+            input("\nPress Enter to continue...")
+
+        elif choice == '5':
             break
         else:
             print_error("Invalid option.")
 
-
-def show_tagging_menu(state):
-    """Tagging menu logic with state management."""
+def show_tag_manager_menu(state):
+    """
+    Handles local file tagging operations like checking and erasing.
+    """
     while True:
         cbz_files = [f for f in state.loaded_files if f.lower().endswith('.cbz')]
         if not cbz_files:
-            print_error("No .cbz files loaded to tag. Convert files first.")
+            print_error("No .cbz files loaded to manage. Convert files first.")
             input("Press Enter to continue...")
             return
 
-        target_file = select_file_from_list(cbz_files, "Select a .cbz file to tag")
+        target_file = select_file_from_list(cbz_files, "Select a .cbz file to manage")
         if not target_file:
-            return # User cancelled selection
+            return
 
-        # Loop for actions on the selected file
         while True:
-            print_header_line(f"Tagging: {os.path.basename(target_file)}", color=Style.GREEN)
-            print(" 1. Tag from ComicVine Issue ID")
-            print(" 2. Check existing tags")
-            print(" 3. Erase tags")
-            print(" 4. Select another file")
-            print(" 5. Back to Main Menu")
+            print_header_line(f"Tag Manager: {os.path.basename(target_file)}", color=Style.GREEN)
+            print(" 1. Check existing tags")
+            print(" 2. Erase tags")
+            print(" 3. Select another file")
+            print(" 4. Back to Main Menu")
             choice = get_user_input("Choose an option: ")
 
             if choice == '1':
-                issue_id = get_user_input("Enter ComicVine Issue ID: ", required=True)
-                if not issue_id.isdigit(): continue
-
-                rename = get_user_input("Rename file after tagging? (y/n): ").lower() == 'y'
-                # [FIX] Changed prompt text
-                translate = 'pl' if get_user_input("Translate description? (y/n): ").lower() == 'y' else None
-                overwrite = get_user_input("Overwrite all existing tags? (y/n): ").lower() == 'y'
-
-                args = SimpleNamespace(
-                    issue_id=int(issue_id),
-                    cbz_file_path=target_file,
-                    rename=rename,
-                    translate=translate,
-                    overwrite_all=overwrite,
-                    from_file=None, erase=False, check=False
-                )
-                
-                # [FIX] Capture the new path after tagging/renaming
-                success, new_path = handle_tagging_dispatch(args)
-                
-                if success and new_path != target_file:
-                    state.update_filepath(target_file, new_path)
-                    target_file = new_path # Update the current working file for this menu
-                
-                input("\nPress Enter to continue...")
-
-
-            elif choice == '2':
-                # [FIX] Check if the file still exists before checking tags
                 if not os.path.exists(target_file):
-                    print_error(f"File '{os.path.basename(target_file)}' no longer exists. It may have been renamed or moved.")
-                    break # Break from this inner loop to re-select a file
+                    print_error(f"File '{os.path.basename(target_file)}' no longer exists.")
+                    break
                 args = SimpleNamespace(paths=[target_file])
                 handle_check(args)
                 input("\nPress Enter to continue...")
 
-            elif choice == '3':
+            elif choice == '2':
                 if not os.path.exists(target_file):
                     print_error(f"File '{os.path.basename(target_file)}' no longer exists.")
                     break
                 confirm = get_user_input(f"Erase all tags from {os.path.basename(target_file)}? (y/n): ")
                 if confirm.lower() == 'y':
                     args = SimpleNamespace(erase=True, cbz_file_path=target_file)
-                    handle_tagging_dispatch(args) # Erase doesn't change path
+                    handle_tagging_dispatch(args)
                 else:
                     print_info("Erase operation cancelled.")
             
-            elif choice == '4':
-                break # Break inner loop to go back to file selection
+            elif choice == '3':
+                break
 
-            elif choice == '5':
-                return # Exit tagging menu completely
+            elif choice == '4':
+                return
             else:
                 print_error("Invalid option.")
-        # After breaking from inner loop (choice '4'), the outer loop will re-prompt for file selection
-
 
 def show_convert_menu(state):
     """Convert menu logic."""
@@ -259,7 +233,7 @@ def show_convert_menu(state):
         choice = get_user_input("Choose an option: ")
 
         if choice == '1' and files_to_convert:
-            args = SimpleNamespace(paths=state.loaded_files) # Pass all loaded files to let handle_convert filter
+            args = SimpleNamespace(paths=state.loaded_files)
             handle_convert(args)
             if get_user_input("Conversion finished. Reload file list? (y/n): ").lower() == 'y':
                 state.reload_files()
@@ -293,8 +267,8 @@ def main():
         print_header_line("Main Menu", color=Style.MAGENTA)
         print(f"Loaded {len(state.loaded_files)} file(s).")
         print("\n" + "-"*20)
-        print(" 1. Search ComicVine (read-only)")
-        print(" 2. Tag a Comic File")
+        print(" 1. Search & Tag from ComicVine")
+        print(" 2. Tag Manager")
         print(" 3. Convert Files to CBZ")
         print(" 4. List Loaded Files")
         print(" 5. Exit")
@@ -302,8 +276,8 @@ def main():
 
         choice = get_user_input("Choose an option: ")
 
-        if choice == '1': show_search_menu()
-        elif choice == '2': show_tagging_menu(state)
+        if choice == '1': show_search_and_tag_menu(state)
+        elif choice == '2': show_tag_manager_menu(state)
         elif choice == '3': show_convert_menu(state)
         elif choice == '4':
             print_header_line("Loaded Files", color=Style.CYAN)
